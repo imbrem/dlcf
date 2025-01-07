@@ -1,7 +1,25 @@
 import Discretion.Wk.Nat
+
 import Mathlib.Order.SuccPred.Basic
+import Mathlib.Order.UpperLower.Basic
+
+import Mathlib.Data.Nat.SuccPred
 
 namespace DLCF
+
+class Level (Λ : Type _) extends SemilatticeSup Λ, SuccOrder Λ, Zero Λ
+
+class LevelBound (Λ : Type _) [Level Λ] where
+  valid : Set Λ
+  valid_lower: IsLowerSet valid
+
+instance Level.instNat : Level ℕ where
+
+instance LevelBound.nat_unbounded : LevelBound ℕ where
+  valid := Set.univ
+  valid_lower := isLowerSet_univ
+
+variable (Λ : Type _)
 
 inductive Term : Type
   | bound : ℕ → Term
@@ -9,7 +27,7 @@ inductive Term : Type
   | top : Term
   | bot : Term
   | epsilon : Term → Term
-  | univ : ℕ → Term
+  | univ : Λ → Term
   | dite : Term → Term → Term → Term
   | pi : Term → Term → Term
   | app : Term → Term → Term
@@ -27,15 +45,22 @@ inductive Term : Type
   | invalid : Term
   deriving DecidableEq
 
+structure Term.FVar where
+  name : ℕ
+  ty : Term Λ
+  deriving DecidableEq
+
 -- TODO: separate out primitives ε, Σ, W, Q, Σrec, Wrec, Qrec, mkΣ, mkW, mkQ?
 
-instance : Inhabited Term := ⟨.invalid⟩
+instance : Inhabited (Term Λ) := ⟨.invalid⟩
 
-instance : Top Term := ⟨.top⟩
+instance : Top (Term Λ) := ⟨.top⟩
 
-instance : Bot Term := ⟨.bot⟩
+instance : Bot (Term Λ) := ⟨.bot⟩
 
 namespace Term
+
+variable {Λ : Type _}
 
 inductive Sexpr : Type
   | of : String → Sexpr
@@ -54,12 +79,12 @@ def Sexpr.print : Sexpr → String := print_inner false
 
 instance : ToString Sexpr where toString := Sexpr.print
 
-def sexpr : Term → Sexpr
+def sexpr [ToString Λ] : Term Λ → Sexpr
   | bound n => .of ("#" ++ toString n)
   | free n A => .cat [.of "#f", .of (toString n), A.sexpr]
   | top => .of "#⊤"
   | bot => .of "#⊥"
-  | univ n => .of ("#U" ++ toString n)
+  | univ ℓ => .cat [.of "#U", .of (toString ℓ)]
   | dite c t f => .cat [.of "#dite", c.sexpr, t.sexpr, f.sexpr]
   | epsilon A => .cat [.of "#ε", A.sexpr]
   | pi A B => .cat [.of "#Π", A.sexpr, B.sexpr]
@@ -77,9 +102,9 @@ def sexpr : Term → Sexpr
   | qrec A => .cat [.of "#Qrec", A.sexpr]
   | invalid => .of "#X"
 
-instance : ToString Term where toString t := toString t.sexpr
+instance [ToString Λ] : ToString (Term Λ) where toString t := toString t.sexpr
 
-def depth : Term → ℕ
+def depth : Term Λ → ℕ
   | free _ A => A.depth + 1
   | epsilon A => A.depth + 1
   | dite c t f => (c.depth ⊔ t.depth ⊔ f.depth) + 1
@@ -90,7 +115,7 @@ def depth : Term → ℕ
   | sigma f | mks f | srec f | wty f | mkw f | wrec f | qty f | mkq f | qrec f => f.depth + 1
   | _ => 0
 
-def size : Term → ℕ
+def size : Term Λ → ℕ
   | free _ A => A.size + 1
   | epsilon A => A.size + 1
   | dite c t f => (c.size + t.size + f.size) + 1
@@ -101,13 +126,13 @@ def size : Term → ℕ
   | sigma f | mks f | srec f | wty f | mkw f | wrec f | qty f | mkq f | qrec f => f.size + 1
   | _ => 1
 
-theorem depth_lt_size (t : Term) : t.depth < t.size := by
+theorem depth_lt_size (t : Term Λ) : t.depth < t.size := by
   induction t <;> simp [depth, size, *] <;> omega
 
 -- theorem size_le_2_pow_depth (t : Term) : t.size ≤ 2 ^ t.depth := by
 --   induction t <;> simp [depth, size, pow_succ, mul_two, *] <;> aesop
 
-def bv : Term → ℕ
+def bv : Term Λ → ℕ
   | bound n => n + 1
   | epsilon A => A.bv
   | dite c t f => c.bv ⊔ (t.bv - 1) ⊔ (f.bv - 1)
@@ -118,7 +143,7 @@ def bv : Term → ℕ
   | sigma f | mks f | srec f | wty f | mkw f | wrec f | qty f | mkq f | qrec f => f.bv
   | _ => 0
 
-def wk (ρ : ℕ → ℕ) : Term → Term
+def wk (ρ : ℕ → ℕ) : Term Λ → Term Λ
   | bound n => bound (ρ n)
   | epsilon A => epsilon (A.wk ρ)
   | dite c t f => dite (c.wk ρ) (t.wk (Nat.liftWk ρ)) (f.wk (Nat.liftWk ρ))
@@ -137,18 +162,18 @@ def wk (ρ : ℕ → ℕ) : Term → Term
   | qrec f => qrec (f.wk ρ)
   | t => t
 
-instance wkSMul : SMul (ℕ → ℕ) Term where
+instance wkSMul : SMul (ℕ → ℕ) (Term Λ) where
   smul := wk
 
-theorem smul_def (ρ : ℕ → ℕ) (t : Term) : ρ • t = t.wk ρ := rfl
+theorem smul_def (ρ : ℕ → ℕ) (t : Term Λ) : ρ • t = t.wk ρ := rfl
 
 @[simp]
-theorem wk_id (t : Term) : t.wk id = t := by induction t <;> simp [wk, *]
+theorem wk_id (t : Term Λ) : t.wk id = t := by induction t <;> simp [wk, *]
 
 @[simp]
-theorem id_smul (t : Term) : id (α := ℕ) • t = t := wk_id t
+theorem id_smul (t : Term Λ) : id (α := ℕ) • t = t := wk_id t
 
-theorem wk_liftnWk_ge_bv (ρ : ℕ → ℕ) (n : ℕ) (t : Term) (h : t.bv ≤ n)
+theorem wk_liftnWk_ge_bv (ρ : ℕ → ℕ) (n : ℕ) (t : Term Λ) (h : t.bv ≤ n)
   : t.wk (Nat.liftnWk n ρ) = t := by induction t generalizing n ρ with
   | bound k =>
     simp only [bv, wk, Nat.liftnWk, bound.injEq, ite_eq_left_iff, not_lt] at *
@@ -159,38 +184,35 @@ theorem wk_liftnWk_ge_bv (ρ : ℕ → ℕ) (n : ℕ) (t : Term) (h : t.bv ≤ n
     apply_assumption <;>
     omega
 
-theorem wk_liftnWk_bv (ρ : ℕ → ℕ) (t : Term) : t.wk (Nat.liftnWk t.bv ρ) = t := by
+theorem wk_liftnWk_bv (ρ : ℕ → ℕ) (t : Term Λ) : t.wk (Nat.liftnWk t.bv ρ) = t := by
   apply wk_liftnWk_ge_bv
   apply Nat.le_refl
 
-theorem wk_lc (ρ : ℕ → ℕ) (t : Term) (h : t.bv = 0) : t.wk ρ = t := by
+theorem wk_lc (ρ : ℕ → ℕ) (t : Term Λ) (h : t.bv = 0) : t.wk ρ = t := by
   convert wk_liftnWk_bv ρ t
   rw [h, Nat.liftnWk_zero, id]
 
-theorem wk_comp (ρ ρ' : ℕ → ℕ) (t : Term) : t.wk (ρ ∘ ρ') = (t.wk ρ').wk ρ := by
+theorem wk_comp (ρ ρ' : ℕ → ℕ) (t : Term Λ) : t.wk (ρ ∘ ρ') = (t.wk ρ').wk ρ := by
   induction t generalizing ρ ρ' <;> simp [Nat.liftWk_comp, wk, *]
 
-theorem comp_smul (ρ ρ' : ℕ → ℕ) (t : Term) : (ρ ∘ ρ') • t = ρ • ρ' • t := wk_comp ρ ρ' t
+theorem comp_smul (ρ ρ' : ℕ → ℕ) (t : Term Λ) : (ρ ∘ ρ') • t = ρ • ρ' • t := wk_comp ρ ρ' t
 
-abbrev wk0 : Term → Term := wk .succ
-
-@[match_pattern]
-def arr : Term → Term → Term := λA B => .pi A (B.wk0)
+abbrev wk0 : Term Λ → Term Λ := wk .succ
 
 @[match_pattern]
-def neg : Term → Term := λA => .arr A ⊥
+def arr : Term Λ → Term Λ → Term Λ := λA B => .pi A (B.wk0)
 
 @[match_pattern]
-def trunc : Term → Term := λA => .neg (.neg A)
+def neg : Term Λ → Term Λ := λA => .arr A ⊥
 
-structure FVar where
-  name : ℕ
-  ty : Term
-  deriving DecidableEq
+@[match_pattern]
+def trunc : Term Λ → Term Λ := λA => .neg (.neg A)
 
-instance fVarToTerm : Coe FVar Term := ⟨λx => .free x.name x.ty⟩
+instance fVarToTerm : Coe (FVar Λ) (Term Λ) := ⟨λx => .free x.name x.ty⟩
 
-def fv : Term → Finset FVar
+variable [DecidableEq Λ]
+
+def fv : Term Λ → Finset (FVar Λ)
   | free n A => { ⟨n, A⟩ } ∪ A.fv
   | epsilon A => A.fv
   | dite c t f => c.fv ∪ t.fv ∪ f.fv
@@ -202,10 +224,10 @@ def fv : Term → Finset FVar
   | _ => ∅
 
 @[simp]
-theorem fv_coe (x : FVar) : (x : Term).fv = {x} ∪ x.ty.fv := rfl
+theorem fv_coe (x : FVar Λ) : (x : Term Λ).fv = {x} ∪ x.ty.fv := rfl
 
 -- NOTE: all valid terms should satisfy this!
-inductive fv_lc : Term → Prop
+inductive fv_lc : Term Λ → Prop
   | bound {n} : fv_lc (bound n)
   | free {n A} : A.bv = 0 → fv_lc A → fv_lc (free n A)
   | top : fv_lc top
@@ -228,13 +250,13 @@ inductive fv_lc : Term → Prop
   | qrec {f} : fv_lc f → fv_lc (qrec f)
   | invalid : fv_lc invalid
 
-theorem fv_lc_var' {t : Term} (h : t.fv_lc) : ∀n A, ⟨n, A⟩ ∈ t.fv -> A.bv = 0
+theorem fv_lc_var' {t : Term Λ} (h : t.fv_lc) : ∀n A, ⟨n, A⟩ ∈ t.fv -> A.bv = 0
   := by intro n A hnA; induction h <;> simp [fv] at * <;> aesop
 
-theorem fv_lc_var {t : Term} (h : t.fv_lc) : ∀x ∈ t.fv, x.ty.bv = 0
+theorem fv_lc_var {t : Term Λ} (h : t.fv_lc) : ∀x ∈ t.fv, x.ty.bv = 0
   := λx hx => fv_lc_var' h x.name x.ty hx
 
-theorem fv_lc_of_var {t : Term} (h : ∀x ∈ t.fv, x.ty.bv = 0) : t.fv_lc
+theorem fv_lc_of_var {t : Term Λ} (h : ∀x ∈ t.fv, x.ty.bv = 0) : t.fv_lc
   := by induction t with
   | free n A IA =>
     constructor
@@ -242,14 +264,14 @@ theorem fv_lc_of_var {t : Term} (h : ∀x ∈ t.fv, x.ty.bv = 0) : t.fv_lc
     · apply IA; intro x hx; apply h; simp [fv, hx]
   | _ => constructor <;> apply_assumption <;> intro x hx <;> apply_assumption <;> simp [fv, *]
 
-theorem fv_lc_of_var' {t : Term} (h : ∀n A, ⟨n, A⟩ ∈ t.fv -> A.bv = 0) : t.fv_lc
+theorem fv_lc_of_var' {t : Term Λ} (h : ∀n A, ⟨n, A⟩ ∈ t.fv -> A.bv = 0) : t.fv_lc
   := fv_lc_of_var (λx => h x.name x.ty)
 
-theorem fv_lc_iff (t : Term) : t.fv_lc ↔ ∀x ∈ t.fv, x.ty.bv = 0
+theorem fv_lc_iff (t : Term Λ) : t.fv_lc ↔ ∀x ∈ t.fv, x.ty.bv = 0
   := ⟨fv_lc_var, fv_lc_of_var⟩
 
-theorem fv_lc_iff' (t : Term) : t.fv_lc ↔ (∀n A, ⟨n, A⟩ ∈ t.fv -> A.bv = 0)
+theorem fv_lc_iff' (t : Term Λ) : t.fv_lc ↔ (∀n A, ⟨n, A⟩ ∈ t.fv -> A.bv = 0)
   := ⟨fv_lc_var', fv_lc_of_var'⟩
 
-theorem fv_wk (ρ : ℕ → ℕ) (t : Term) : (t.wk ρ).fv = t.fv := by
+theorem fv_wk (ρ : ℕ → ℕ) (t : Term Λ) : (t.wk ρ).fv = t.fv := by
   induction t generalizing ρ <;> simp [wk, fv, *]

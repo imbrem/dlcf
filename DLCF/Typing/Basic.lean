@@ -1,4 +1,5 @@
 import DLCF.Syntax.Subst
+import Mathlib.Data.ENat.Basic
 
 namespace DLCF
 
@@ -8,14 +9,19 @@ def imax (n : ℕ) : ℕ → ℕ
 
 namespace Term
 
-inductive JEq : Finset FVar → Term → Term → Term → Prop
+variable {Λ} [DecidableEq Λ] [Level Λ] [LevelBound Λ]
+
+open SuccOrder
+
+inductive JEq : Finset (FVar Λ) → Term Λ → Term Λ → Term Λ → Prop
   -- Congruence
   | top_emp : JEq ∅ (.univ 0) ⊤ ⊤
   | top_cons (hA : JEq Γ (.univ n) A A) : JEq (insert ⟨i, A⟩ Γ) (.univ 0) ⊤ ⊤
   | var (hΓ : JEq Γ (.univ n) A A) (hx : ⟨i, A⟩ ∈ Γ) : JEq Γ A (.free i A) (.free i A)
   | bot (hΓ : JEq Γ (.univ 0) ⊤ ⊤) : JEq Γ (.univ 0) ⊥ ⊥
   | tt (hΓ : JEq Γ (.univ 0) ⊤ ⊤) : JEq Γ ⊤ (.epsilon ⊤) (.epsilon ⊤)
-  | univ (hΓ : JEq Γ (.univ 0) ⊤ ⊤) : JEq Γ (.univ (n + 1)) (.univ n) (.univ n)
+  | univ (hΓ : JEq Γ (.univ 0) ⊤ ⊤) (hn : (succ n) ∈ LevelBound.valid)
+    : JEq Γ (.univ (succ n)) (.univ n) (.univ n)
   | trunc (hΓ : JEq Γ (.univ n) A B) : JEq Γ (.univ 0) (.trunc A) (.trunc B)
   | dite (hφ : JEq Γ (.univ 0) φ φ') (ht : JEq Γ A t t') (hf : JEq Γ A f f')
     : JEq Γ A (.dite φ t f) (.dite φ' t' f')
@@ -23,7 +29,7 @@ inductive JEq : Finset FVar → Term → Term → Term → Prop
     (h : ∀i ∉ L, JEq (insert ⟨i, A⟩ Γ) (.univ m)
     (B.bsubst (Term.free i A).b0)
     (B'.bsubst (Term.free i A).b0))
-    : JEq Γ (.univ (n ⊔ m ⊔ 1)) (.pi A B) (.pi A' B')
+    : JEq Γ (.univ (n ⊔ m ⊔ (succ 0))) (.pi A B) (.pi A' B')
   | abs (hA : JEq Γ (.univ n) A A') (L : Finset ℕ)
     (h : ∀i ∉ L, JEq (insert ⟨i, A⟩ Γ) (B.bsubst (Term.free i A).b0)
     (b.bsubst (Term.free i A).b0)
@@ -34,7 +40,7 @@ inductive JEq : Finset FVar → Term → Term → Term → Prop
   -- Reduction rules
   | dite_top (ht : JEq Γ A t t') (hf : JEq Γ A f f') : JEq Γ A (.dite ⊤ t f) t'
   | dite_bot (ht : JEq Γ A t t') (hf : JEq Γ A f f') : JEq Γ A (.dite ⊥ t f) f'
-  | β_abs {a A b B : Term}
+  | β_abs {a A b B : Term Λ}
     (hA : JEq Γ (.univ n) A A')
     (L : Finset ℕ)
     (h : ∀i ∉ L, JEq (insert ⟨i, A⟩ Γ) (B.bsubst (Term.free i A).b0)
@@ -56,7 +62,12 @@ attribute [simp] JEq.top_emp
 
 notation Γ " ⊢ " a " ≡ " b " : " A => JEq Γ A a b
 
-theorem JEq.to_top (h : Γ ⊢ a ≡ b : A) : Γ ⊢ ⊤ ≡ ⊤ : .univ 0 := by induction h with
+section JEq
+
+variable {Γ : Finset (FVar Λ)}
+
+theorem JEq.to_top (h : Γ ⊢ a ≡ b : A) : Γ ⊢ ⊤ ≡ ⊤ : .univ 0
+  := by induction h with
   | top_emp => exact .top_emp
   | top_cons hA => exact .top_cons hA
   | _ => assumption
@@ -65,7 +76,7 @@ theorem JEq.left_refl_jeq (h : Γ ⊢ a ≡ b : A) : Γ ⊢ a ≡ a : A := .tran
 
 theorem JEq.right_refl_jeq (h : Γ ⊢ a ≡ b : A) : Γ ⊢ b ≡ b : A := .trans (.symm h) h
 
-def Ok (Γ : Finset FVar) : Prop := ∃a b A, Γ ⊢ a ≡ b : A
+def Ok (Γ : Finset (FVar Λ)) : Prop := ∃a b A, Γ ⊢ a ≡ b : A
 
 theorem JEq.ok (h : Γ ⊢ a ≡ b : A) : Ok Γ := ⟨_, _, _, h⟩
 
@@ -87,10 +98,11 @@ theorem Ok.tt (h : Ok Γ) : Γ ⊢ .epsilon ⊤ ≡ .epsilon ⊤ : ⊤ := .tt h.
 @[simp]
 theorem JEq.tt_iff : (Γ ⊢ .epsilon ⊤ ≡ .epsilon ⊤ : ⊤) ↔ Ok Γ := ⟨JEq.ok, Ok.tt⟩
 
-theorem Ok.univ (h : Ok Γ) : Γ ⊢ .univ n ≡ .univ n : .univ (n + 1) := .univ h.top
+theorem Ok.univ (h : Ok Γ) (hℓ : succ n ∈ LevelBound.valid) : Γ ⊢ .univ n ≡ .univ n : .univ (succ n)
+  := .univ h.top hℓ
 
-@[simp]
-theorem JEq.univ_iff : (Γ ⊢ .univ n ≡ .univ n : .univ (n + 1)) ↔ Ok Γ := ⟨JEq.ok, Ok.univ⟩
+-- @[simp]
+-- theorem JEq.univ_iff : (Γ ⊢ .univ n ≡ .univ n : .univ (succ n)) ↔ Ok Γ := ⟨JEq.ok, Ok.univ⟩
 
 theorem JEq.wk (hΔ : Ok Δ) (w : Γ ⊆ Δ) (h : Γ ⊢ a ≡ b : A) : Δ ⊢ a ≡ b : A
   := by induction h generalizing Δ with
@@ -109,7 +121,7 @@ theorem JEq.wki (h : Γ ⊢ a ≡ b : A) (hB : Γ ⊢ B ≡ B' : .univ n): inser
   := h.wk (hB.ok_var i) (by simp)
 
 theorem JEq.arr (hA : Γ ⊢ A ≡ A' : .univ n) (hB : Γ ⊢ B ≡ B' : .univ m)
-  : Γ ⊢ .arr A B ≡ .arr A' B' : .univ (n ⊔ m ⊔ 1) := by
+  : Γ ⊢ .arr A B ≡ .arr A' B' : .univ (n ⊔ m ⊔ (succ 0)) := by
   apply JEq.pi hA ∅
   intro i
   simp only [Finset.not_mem_empty, not_false_eq_true, bsubst0_wk0, forall_const]
@@ -130,25 +142,30 @@ theorem Ok.mem_exists (h : Ok Γ) (hA : ⟨i, A⟩ ∈ Γ) : ∃n, Γ ⊢ A ≡ 
 theorem Ok.var (h : Ok Γ) (hx : ⟨i, A⟩ ∈ Γ) : Γ ⊢ .free i A ≡ .free i A : A
   := have ⟨_, hA⟩ := h.mem_exists hx; .var hA hx
 
-inductive OkL : List FVar → Prop
-  | nil : OkL []
-  | cons (hA : Γ.toFinset ⊢ A ≡ A : .univ n) (hΓ : OkL Γ) : OkL (⟨i, A⟩ :: Γ)
+-- inductive OkL : List (FVar Λ) → Prop
+--   | nil : OkL []
+--   | cons (hA : Γ.toFinset ⊢ A ≡ A : .univ n) (hΓ : OkL Γ) : OkL (⟨i, A⟩ :: Γ)
 
+end JEq
 
-inductive HasTy : Finset FVar → Term → Term → Prop
+section HasTy
+
+inductive HasTy : Finset (FVar Λ) → Term Λ → Term Λ → Prop
   | var (hΓ : Ok Γ) (hx : ⟨i, A⟩ ∈ Γ) : HasTy Γ A (.free i A)
   | top (hΓ : Ok Γ) : HasTy Γ (.univ 0) ⊤
   | bot (hΓ : Ok Γ) : HasTy Γ (.univ 0) ⊥
   | tt (hΓ : Ok Γ) : HasTy Γ ⊤ (.epsilon ⊤)
-  | univ (hΓ : Ok Γ) : HasTy Γ (.univ (n + 1)) (.univ n)
+  | univ (hΓ : Ok Γ) (hℓ : succ n ∈ LevelBound.valid) : HasTy Γ (.univ (succ n)) (.univ n)
   | dite (hφ : HasTy Γ (.univ 0) φ) (ht : HasTy Γ A t) (hf : HasTy Γ A f)
     : HasTy Γ A (.dite φ t f)
   | pi (hA : HasTy Γ (.univ n) A) (L : Finset ℕ)
     (hB : ∀i ∉ L, HasTy (insert ⟨i, A⟩ Γ) (.univ m) (B.bsubst (Term.free i A).b0))
-    : HasTy Γ (.univ (n ⊔ m ⊔ 1)) (.pi A B)
+    : HasTy Γ (.univ (n ⊔ m ⊔ (succ 0))) (.pi A B)
   | cast (h : Γ ⊢ A ≡ B : .univ n) (ha : HasTy Γ A a) : HasTy Γ B a
 
 notation Γ " ⊢ " a " : " A => HasTy Γ A a
+
+variable {Γ : Finset (FVar Λ)}
 
 theorem HasTy.ok (h : Γ ⊢ a : A) : Ok Γ := by induction h with
   | _ => assumption
@@ -172,6 +189,8 @@ theorem HasTy.wk (hΔ : Ok Δ) (w : Γ ⊆ Δ) (h : Γ ⊢ a : A) : Δ ⊢ a : A
     | apply HasTy.ok_var
     | apply Finset.insert_subset_insert
     | apply_assumption)
+
+end HasTy
 
 -- inductive Ext : Finset FVar → Finset FVar → Prop
 --   | emp (hΓ : Ok Γ) : Ext Γ ∅
