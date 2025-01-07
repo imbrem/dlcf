@@ -1,4 +1,5 @@
 import Discretion.Wk.Nat
+import Mathlib.Order.SuccPred.Basic
 
 namespace DLCF
 
@@ -7,16 +8,28 @@ inductive Term : Type
   | free : ℕ → Term → Term
   | top : Term
   | bot : Term
+  | epsilon : Term → Term
   | univ : ℕ → Term
-  | nil : Term
+  | dite : Term → Term → Term → Term
   | pi : Term → Term → Term
   | app : Term → Term → Term
   | abs : Term → Term → Term
-  -- TODO: equality family instead?
   | eq : Term → Term → Term → Term
+  | sigma : Term → Term
+  | mks : Term → Term
+  | srec : Term → Term
+  | wty : Term → Term
+  | mkw : Term → Term
+  | wrec : Term → Term
+  | qty : Term → Term
+  | mkq : Term → Term
+  | qrec : Term → Term
+  | invalid : Term
   deriving DecidableEq
 
-instance : Inhabited Term := ⟨.nil⟩
+-- TODO: separate out primitives ε, Σ, W, Q, Σrec, Wrec, Qrec, mkΣ, mkW, mkQ?
+
+instance : Inhabited Term := ⟨.invalid⟩
 
 instance : Top Term := ⟨.top⟩
 
@@ -24,53 +37,104 @@ instance : Bot Term := ⟨.bot⟩
 
 namespace Term
 
-def sexpr : Term → String
-  | bound n => "#" ++ toString n
-  | free n A => "(" ++ toString n ++ " : " ++ A.sexpr ++ ")"
-  | top => "#⊤"
-  | bot => "#⊥"
-  | univ n => "#U" ++ toString n
-  | nil => "()"
-  | pi A B => "(#Π " ++ A.sexpr ++ " " ++ B.sexpr ++ ")"
-  | app f a => "(" ++ f.sexpr ++ " " ++ a.sexpr ++ ")"
-  | abs A t => "(#λ " ++ A.sexpr ++ " " ++ t.sexpr ++ ")"
-  | eq A a b => "(#= " ++ A.sexpr ++ " " ++ a.sexpr ++ " " ++ b.sexpr ++ ")"
+inductive Sexpr : Type
+  | of : String → Sexpr
+  | cat : List Sexpr → Sexpr
 
-instance : ToString Term := ⟨sexpr⟩
+def Sexpr.print_inner (opened : Bool) : Sexpr → String
+  | .of s => s
+  | .cat [] => if opened then ")" else "()"
+  | .cat (x::xs) =>
+    if opened then "(" else ""
+      ++ (x.print_inner false)
+      ++ " "
+      ++ (Sexpr.cat xs).print_inner true
+
+def Sexpr.print : Sexpr → String := print_inner false
+
+instance : ToString Sexpr where toString := Sexpr.print
+
+def sexpr : Term → Sexpr
+  | bound n => .of ("#" ++ toString n)
+  | free n A => .cat [.of "#f", .of (toString n), A.sexpr]
+  | top => .of "#⊤"
+  | bot => .of "#⊥"
+  | univ n => .of ("#U" ++ toString n)
+  | dite c t f => .cat [.of "#dite", c.sexpr, t.sexpr, f.sexpr]
+  | epsilon A => .cat [.of "#ε", A.sexpr]
+  | pi A B => .cat [.of "#Π", A.sexpr, B.sexpr]
+  | app f a => .cat [.of "#.", f.sexpr, a.sexpr]
+  | abs A t => .cat [.of "#λ", A.sexpr, t.sexpr]
+  | eq A a b => .cat [.of "#=", A.sexpr, a.sexpr, b.sexpr]
+  | sigma A => .cat [.of "#Σ", A.sexpr]
+  | mks A => .cat [.of "#mkΣ", A.sexpr]
+  | srec A => .cat [.of "#Σrec", A.sexpr]
+  | wty A => .cat [.of "#W", A.sexpr]
+  | mkw A => .cat [.of "#mkW", A.sexpr]
+  | wrec A => .cat [.of "#Wrec", A.sexpr]
+  | qty A => .cat [.of "#Q", A.sexpr]
+  | mkq A => .cat [.of "#mkQ", A.sexpr]
+  | qrec A => .cat [.of "#Qrec", A.sexpr]
+  | invalid => .of "#X"
+
+instance : ToString Term where toString t := toString t.sexpr
 
 def depth : Term → ℕ
   | free _ A => A.depth + 1
+  | epsilon A => A.depth + 1
+  | dite c t f => (c.depth ⊔ t.depth ⊔ f.depth) + 1
   | pi A B => (A.depth ⊔ B.depth) + 1
   | app f a => (f.depth ⊔ a.depth) + 1
   | abs A t => (A.depth ⊔ t.depth) + 1
   | eq A a b => (A.depth ⊔ a.depth ⊔ b.depth) + 1
+  | sigma f | mks f | srec f | wty f | mkw f | wrec f | qty f | mkq f | qrec f => f.depth + 1
   | _ => 0
 
 def size : Term → ℕ
   | free _ A => A.size + 1
+  | epsilon A => A.size + 1
+  | dite c t f => (c.size + t.size + f.size) + 1
   | pi A B => (A.size + B.size) + 1
   | app f a => (f.size + a.size) + 1
   | abs A t => (A.size + t.size) + 1
   | eq A a b => (A.size + a.size + b.size) + 1
+  | sigma f | mks f | srec f | wty f | mkw f | wrec f | qty f | mkq f | qrec f => f.size + 1
   | _ => 1
 
 theorem depth_lt_size (t : Term) : t.depth < t.size := by
   induction t <;> simp [depth, size, *] <;> omega
 
+-- theorem size_le_2_pow_depth (t : Term) : t.size ≤ 2 ^ t.depth := by
+--   induction t <;> simp [depth, size, pow_succ, mul_two, *] <;> aesop
+
 def bv : Term → ℕ
   | bound n => n + 1
+  | epsilon A => A.bv
+  | dite c t f => c.bv ⊔ (t.bv - 1) ⊔ (f.bv - 1)
   | pi A B => A.bv ⊔ (B.bv - 1)
   | app f a => f.bv ⊔ a.bv
   | abs A t => A.bv ⊔ (t.bv - 1)
   | eq A a b => A.bv ⊔ a.bv ⊔ b.bv
+  | sigma f | mks f | srec f | wty f | mkw f | wrec f | qty f | mkq f | qrec f => f.bv
   | _ => 0
 
 def wk (ρ : ℕ → ℕ) : Term → Term
   | bound n => bound (ρ n)
+  | epsilon A => epsilon (A.wk ρ)
+  | dite c t f => dite (c.wk ρ) (t.wk (Nat.liftWk ρ)) (f.wk (Nat.liftWk ρ))
   | pi A B => pi (A.wk ρ) (B.wk (Nat.liftWk ρ))
   | app f a => app (f.wk ρ) (a.wk ρ)
   | abs A t => abs (A.wk ρ) (t.wk (Nat.liftWk ρ))
   | eq A a b => eq (A.wk ρ) (a.wk ρ) (b.wk ρ)
+  | sigma f => sigma (f.wk ρ)
+  | mks f => mks (f.wk ρ)
+  | srec f => srec (f.wk ρ)
+  | wty f => wty (f.wk ρ)
+  | mkw f => mkw (f.wk ρ)
+  | wrec f => wrec (f.wk ρ)
+  | qty f => qty (f.wk ρ)
+  | mkq f => mkq (f.wk ρ)
+  | qrec f => qrec (f.wk ρ)
   | t => t
 
 instance wkSMul : SMul (ℕ → ℕ) Term where
@@ -128,10 +192,13 @@ instance fVarToTerm : Coe FVar Term := ⟨λx => .free x.name x.ty⟩
 
 def fv : Term → Finset FVar
   | free n A => { ⟨n, A⟩ } ∪ A.fv
+  | epsilon A => A.fv
+  | dite c t f => c.fv ∪ t.fv ∪ f.fv
   | pi A B => A.fv ∪ B.fv
   | app f a => f.fv ∪ a.fv
   | abs A t => A.fv ∪ t.fv
   | eq A a b => A.fv ∪ a.fv ∪ b.fv
+  | sigma f | mks f | srec f | wty f | mkw f | wrec f | qty f | mkq f | qrec f => f.fv
   | _ => ∅
 
 @[simp]
@@ -143,12 +210,23 @@ inductive fv_lc : Term → Prop
   | free {n A} : A.bv = 0 → fv_lc A → fv_lc (free n A)
   | top : fv_lc top
   | bot : fv_lc bot
+  | epsilon {A} : fv_lc A → fv_lc (epsilon A)
+  | dite {c t f} : fv_lc c → fv_lc t → fv_lc f → fv_lc (dite c t f)
   | univ {n} : fv_lc (univ n)
-  | nil : fv_lc nil
   | pi {A B} : fv_lc A → fv_lc B → fv_lc (pi A B)
   | app {f a} : fv_lc f → fv_lc a → fv_lc (app f a)
   | abs {A t} : fv_lc A → fv_lc t → fv_lc (abs A t)
   | eq {A a b} : fv_lc A → fv_lc a → fv_lc b → fv_lc (eq A a b)
+  | sigma {f} : fv_lc f → fv_lc (sigma f)
+  | mks {f} : fv_lc f → fv_lc (mks f)
+  | srec {f} : fv_lc f → fv_lc (srec f)
+  | wty {f} : fv_lc f → fv_lc (wty f)
+  | mkw {f} : fv_lc f → fv_lc (mkw f)
+  | wrec {f} : fv_lc f → fv_lc (wrec f)
+  | qty {f} : fv_lc f → fv_lc (qty f)
+  | mkq {f} : fv_lc f → fv_lc (mkq f)
+  | qrec {f} : fv_lc f → fv_lc (qrec f)
+  | invalid : fv_lc invalid
 
 theorem fv_lc_var' {t : Term} (h : t.fv_lc) : ∀n A, ⟨n, A⟩ ∈ t.fv -> A.bv = 0
   := by intro n A hnA; induction h <;> simp [fv] at * <;> aesop

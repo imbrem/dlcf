@@ -17,10 +17,21 @@ def BSubst.lift (σ : BSubst) : BSubst
 def bsubst (σ : BSubst) : Term → Term
   | bound n => σ n
   | univ n => univ n
+  | epsilon A => epsilon (A.bsubst σ)
+  | dite c t f => dite (c.bsubst σ) (t.bsubst σ.lift) (f.bsubst σ.lift)
   | pi A B => pi (A.bsubst σ) (B.bsubst (σ.lift))
   | app f a => app (f.bsubst σ) (a.bsubst σ)
   | abs A t => abs (A.bsubst σ) (t.bsubst (σ.lift))
   | eq A a b => eq (A.bsubst σ) (a.bsubst σ) (b.bsubst σ)
+  | sigma f => sigma (f.bsubst σ)
+  | mks f => mks (f.bsubst σ)
+  | srec f => srec (f.bsubst σ)
+  | wty f => wty (f.bsubst σ)
+  | mkw f => mkw (f.bsubst σ)
+  | wrec f => wrec (f.bsubst σ)
+  | qty f => qty (f.bsubst σ)
+  | mkq f => mkq (f.bsubst σ)
+  | qrec f => qrec (f.bsubst σ)
   | t => t
 
 def BSubst.id : BSubst := .bound
@@ -51,6 +62,10 @@ theorem BSubst.ofWk_applied (ρ : ℕ → ℕ) (n : ℕ) : (BSubst.ofWk ρ) n = 
 theorem BSubst.ofWk_id : ofWk _root_.id = id := rfl
 
 theorem BSubst.ofWk_comp (ρ ρ' : ℕ → ℕ) : ofWk (ρ ∘ ρ') = (ofWk ρ).comp (ofWk ρ') := rfl
+
+@[simp]
+theorem b0_comp_wk0 (t : Term) : t.b0.comp (BSubst.ofWk .succ) = BSubst.id
+  := by funext k; cases k <;> rfl
 
 abbrev BSubst.wkIn (ρ : ℕ → ℕ) (σ : BSubst) : BSubst := σ ∘ ρ
 
@@ -124,6 +139,10 @@ theorem BSubst.lift_ofWk (ρ : ℕ → ℕ) : (BSubst.ofWk ρ).lift = BSubst.ofW
 
 theorem bsubst_ofWk (ρ : ℕ → ℕ) (t : Term) : t.bsubst (BSubst.ofWk ρ) = t.wk ρ
   := by induction t generalizing ρ <;> simp [wk, bsubst, BSubst.lift_ofWk, *]
+
+@[simp]
+theorem bsubst0_wk0 (t s : Term) : t.wk0.bsubst s.b0 = t
+  := by simp [wk0, <-bsubst_ofWk, <-bsubst_comp]
 
 theorem ofWk_smul (ρ : ℕ → ℕ) (t : Term) : (BSubst.ofWk ρ) • t = ρ • t := bsubst_ofWk ρ t
 

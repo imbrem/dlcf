@@ -41,10 +41,21 @@ theorem FSubst.lift_applied (σ : FSubst) (x)
 
 def fsubst (σ : FSubst) : Term → Term
   | free n A => σ ⟨n, A⟩
+  | epsilon A => epsilon (A.fsubst σ)
+  | dite c t f => dite (c.fsubst σ) (t.fsubst σ.lift) (f.fsubst σ.lift)
   | pi A B => pi (A.fsubst σ) (B.fsubst σ.lift)
   | app f a => app (f.fsubst σ) (a.fsubst σ)
   | abs A t => abs (A.fsubst σ) (t.fsubst σ.lift)
   | eq A a b => eq (A.fsubst σ) (a.fsubst σ) (b.fsubst σ)
+  | sigma f => sigma (f.fsubst σ)
+  | mks f => mks (f.fsubst σ)
+  | srec f => srec (f.fsubst σ)
+  | wty f => wty (f.fsubst σ)
+  | mkw f => mkw (f.fsubst σ)
+  | wrec f => wrec (f.fsubst σ)
+  | qty f => qty (f.fsubst σ)
+  | mkq f => mkq (f.fsubst σ)
+  | qrec f => qrec (f.fsubst σ)
   | t => t
 
 def FSubst.id : FSubst := λx => .free x.name x.ty
