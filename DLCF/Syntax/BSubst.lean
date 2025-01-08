@@ -19,6 +19,7 @@ def BSubst.lift (σ : BSubst Λ) : BSubst Λ
 def bsubst (σ : BSubst Λ) : Term Λ → Term Λ
   | bound n => σ n
   | univ n => univ n
+  | trunc A => trunc (A.bsubst σ)
   | epsilon A => epsilon (A.bsubst σ)
   | dite c t f => dite (c.bsubst σ) (t.bsubst σ.lift) (f.bsubst σ.lift)
   | pi A B => pi (A.bsubst σ) (B.bsubst (σ.lift))
@@ -147,6 +148,114 @@ theorem bsubst0_wk0 (t s : Term Λ) : t.wk0.bsubst s.b0 = t
   := by simp [wk0, <-bsubst_ofWk, <-bsubst_comp]
 
 theorem ofWk_smul (ρ : ℕ → ℕ) (t : Term Λ) : (BSubst.ofWk (Λ := Λ) ρ) • t = ρ • t := bsubst_ofWk ρ t
+
+theorem bsubst_eq_invalid_iff {σ : BSubst Λ} {t : Term Λ}
+  : t.bsubst σ = .invalid ↔ t = .invalid ∨ (∃i, t = .bound i ∧ σ i = .invalid)
+  := ⟨
+    (λh => by cases t with
+      | invalid => exact Or.inl rfl
+      | bound i => exact Or.inr ⟨i, rfl, h⟩
+      | _ => cases h),
+    λ| .inl h => by cases h; rfl | .inr ⟨i, h, h'⟩ => by cases h; exact h'
+  ⟩
+
+theorem bsubst0_eq_invalid_iff {s t : Term Λ}
+  : t.bsubst s.b0 = .invalid ↔ t = .invalid ∨ t = .bound 0 ∧ s = .invalid
+  := by
+  rw [bsubst_eq_invalid_iff]; apply or_congr_right
+  constructor
+  intro ⟨i, ht, hσ⟩; cases i with | zero => exact ⟨ht, hσ⟩ | succ i => cases hσ
+  intro ⟨ht, hσ⟩; exact ⟨0, ht, hσ⟩
+
+theorem bsubst0_eq_invalid {s t : Term Λ} (h : t.bsubst s.b0 = .invalid)
+  : t = .invalid ∨ s = .invalid := match bsubst0_eq_invalid_iff.mp h with
+  | .inl h => .inl h
+  | .inr h => .inr h.2
+
+theorem bsubst_valid_iff {σ : BSubst Λ} {t : Term Λ}
+  : (t.bsubst σ).valid ↔ t.valid ∧ ∀i ∈ t.bvs, (σ i).valid
+  := by
+  induction t generalizing σ <;> simp [bsubst, bvs, valid, *]
+  case dite c t f Ic It If =>
+    constructor
+    intro ⟨⟨hc, hc'⟩, ⟨ht, ht'⟩, ⟨hf, hf'⟩⟩
+    constructor
+    exact ⟨hc, ht, hf⟩
+    intro i hl
+    match hl with
+    | .inl hl => exact hc' _ hl
+    | .inr (.inl hl) => convert ht' _ hl using 0; simp [BSubst.lift]
+    | .inr (.inr hl) => convert hf' _ hl using 0; simp [BSubst.lift]
+    intro ⟨⟨hc, ht, hf⟩, h⟩
+    exact ⟨
+      ⟨hc, (λi hi => h _ (.inl hi))⟩,
+      ⟨ht, (λ | 0, _ => rfl
+              | i + 1, hi => by convert h _ (.inr (.inl hi)) using 0; simp [BSubst.lift])⟩,
+      ⟨hf, (λ | 0, _ => rfl
+              | i + 1, hi => by convert h _ (.inr (.inr hi)) using 0; simp [BSubst.lift])⟩⟩
+  case pi A t IA It | abs A t IA It =>
+    constructor
+    intro ⟨⟨hA, hA'⟩, ⟨ht, ht'⟩⟩
+    constructor
+    exact ⟨hA, ht⟩
+    intro i hi
+    match hi with
+    | .inl hi => exact hA' _ hi
+    | .inr hi => convert ht' _ hi using 0; simp [BSubst.lift]
+    intro ⟨⟨hA, ht⟩, h⟩
+    exact ⟨
+      ⟨hA, (λi hi => h _ (.inl hi))⟩,
+      ⟨ht, (λ | 0, _ => rfl
+              | i + 1, hi => by convert h _ (.inr hi) using 0; simp [BSubst.lift])⟩⟩
+  case app a b Ia Ib =>
+    constructor
+    intro ⟨⟨ha, ha'⟩, ⟨hb, hb'⟩⟩
+    constructor
+    exact ⟨ha, hb⟩
+    intro i hi
+    match hi with
+    | .inl hi => exact ha' _ hi
+    | .inr hi => exact hb' _ hi
+    intro ⟨⟨ha, hb⟩, h⟩
+    exact ⟨
+      ⟨ha, (λi hi => h _ (.inl hi))⟩,
+      ⟨hb, (λi hi => h _ (.inr hi))⟩⟩
+  case eq A a b IA Ia Ib =>
+    constructor
+    intro ⟨⟨hA, hA'⟩, ⟨ha, ha'⟩, ⟨hb, hb'⟩⟩
+    constructor
+    exact ⟨hA, ha, hb⟩
+    intro i hi
+    match hi with
+    | .inl hi => exact hA' _ hi
+    | .inr (.inl hi) => exact ha' _ hi
+    | .inr (.inr hi) => exact hb' _ hi
+    intro ⟨⟨hA, ha, hb⟩, h⟩
+    exact ⟨
+      ⟨hA, (λi hi => h _ (.inl hi))⟩,
+      ⟨ha, (λi hi => h _ (.inr (.inl hi)))⟩,
+      ⟨hb, (λi hi => h _ (.inr (.inr hi)))⟩⟩
+
+theorem bsubst0_valid_iff {s t : Term Λ} : (t.bsubst s.b0).valid ↔ t.valid ∧ (0 ∉ t.bvs ∨ s.valid)
+  := by
+  rw [bsubst_valid_iff]
+  apply and_congr_right
+  intro h
+  constructor
+  intro h
+  if ht : 0 ∈ t.bvs then
+    exact Or.inr <| h 0 ht
+  else
+    exact Or.inl ht
+  intro h i hi
+  cases i with
+  | zero => cases h with
+    | inl h => exact (h hi).elim
+    | inr h => exact h
+  | succ n => rfl
+
+theorem valid_of_bsubst0 {s t : Term Λ} (h : (t.bsubst s.b0).valid)
+  : t.valid := (bsubst0_valid_iff.mp h).1
 
 -- TODO: class-ify?
 -- theorem bv_wk_le (ρ : ℕ → ℕ) (t : Term) (k : ℕ) (h : BoundedOn t.bv k ρ)

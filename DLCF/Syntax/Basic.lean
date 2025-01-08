@@ -1,4 +1,5 @@
 import Discretion.Wk.Nat
+import Discretion.Wk.Finset
 
 import Mathlib.Order.SuccPred.Basic
 import Mathlib.Order.UpperLower.Basic
@@ -59,6 +60,7 @@ inductive Term : Type
   | free : ℕ → Term → Term
   | top : Term
   | bot : Term
+  | trunc : Term → Term
   | epsilon : Term → Term
   | univ : Λ → Term
   | dite : Term → Term → Term → Term
@@ -117,6 +119,7 @@ def sexpr [ToString Λ] : Term Λ → Sexpr
   | free n A => .cat [.of "#f", .of (toString n), A.sexpr]
   | top => .of "#⊤"
   | bot => .of "#⊥"
+  | trunc A => .cat [.of "#T", A.sexpr]
   | univ ℓ => .cat [.of "#U", .of (toString ℓ)]
   | dite c t f => .cat [.of "#dite", c.sexpr, t.sexpr, f.sexpr]
   | epsilon A => .cat [.of "#ε", A.sexpr]
@@ -167,6 +170,7 @@ theorem depth_lt_size (t : Term Λ) : t.depth < t.size := by
 
 def bv : Term Λ → ℕ
   | bound n => n + 1
+  | trunc A => A.bv
   | epsilon A => A.bv
   | dite c t f => c.bv ⊔ (t.bv - 1) ⊔ (f.bv - 1)
   | pi A B => A.bv ⊔ (B.bv - 1)
@@ -176,8 +180,44 @@ def bv : Term Λ → ℕ
   | sigma f | mks f | srec f | wty f | mkw f | wrec f | qty f | mkq f | qrec f => f.bv
   | _ => 0
 
+def bvs : Term Λ → Finset ℕ
+  | bound n => {n}
+  | trunc A => A.bvs
+  | epsilon A => A.bvs
+  | dite c t f => c.bvs ∪ (Finset.liftFv t.bvs) ∪ (Finset.liftFv f.bvs)
+  | pi A B => A.bvs ∪ (Finset.liftFv B.bvs)
+  | app f a => f.bvs ∪ a.bvs
+  | abs A t => A.bvs ∪ (Finset.liftFv t.bvs)
+  | eq A a b => A.bvs ∪ a.bvs ∪ b.bvs
+  | sigma f | mks f | srec f | wty f | mkw f | wrec f | qty f | mkq f | qrec f => f.bvs
+  | _ => ∅
+
+theorem mem_bvs_le_bv (n : ℕ) (t : Term Λ) : n ∈ t.bvs → n < t.bv := by
+  induction t generalizing n
+  <;> simp only [
+    bv, bvs,
+    Finset.not_mem_empty, Finset.mem_singleton, Finset.mem_union, Finset.mem_liftFv_iff,
+    imp_self, not_lt_zero', lt_sup_iff, *]
+  case bound => intro h; cases h; simp
+  case dite _ _ _ Ic It If =>
+    intro h
+    casesm* _ ∨ _
+    have _ := Ic _ (by assumption); omega
+    have _ := It _ (by assumption); omega
+    have _ := If _ (by assumption); omega
+  case pi _ _ Il Ir => intro h; cases h with
+    | inl h => exact Or.inl (Il _ h)
+    | inr h => have _ := Ir _ h; omega
+  case app _ _ Il Ir => intro h; cases h <;> simp [*]
+  case abs _ _ Il Ir => intro h; cases h with
+    | inl h => exact Or.inl (Il _ h)
+    | inr h => have _ := Ir _ h; omega
+  case eq => intro h; casesm* _ ∨ _ <;> simp [*]
+  all_goals apply_assumption
+
 def wk (ρ : ℕ → ℕ) : Term Λ → Term Λ
   | bound n => bound (ρ n)
+  | trunc A => trunc (A.wk ρ)
   | epsilon A => epsilon (A.wk ρ)
   | dite c t f => dite (c.wk ρ) (t.wk (Nat.liftWk ρ)) (f.wk (Nat.liftWk ρ))
   | pi A B => pi (A.wk ρ) (B.wk (Nat.liftWk ρ))
@@ -238,26 +278,10 @@ def arr : Term Λ → Term Λ → Term Λ := λA B => .pi A (B.wk0)
 @[match_pattern]
 def neg : Term Λ → Term Λ := λA => .arr A ⊥
 
-@[match_pattern]
-def trunc : Term Λ → Term Λ := λA => .neg (.neg A)
+-- @[match_pattern]
+-- def trunc : Term Λ → Term Λ := λA => .neg (.neg A)
 
 instance fVarToTerm : Coe (FVar Λ) (Term Λ) := ⟨λx => .free x.name x.ty⟩
-
-variable [DecidableEq Λ]
-
-def fv : Term Λ → Finset (FVar Λ)
-  | free n A => { ⟨n, A⟩ } ∪ A.fv
-  | epsilon A => A.fv
-  | dite c t f => c.fv ∪ t.fv ∪ f.fv
-  | pi A B => A.fv ∪ B.fv
-  | app f a => f.fv ∪ a.fv
-  | abs A t => A.fv ∪ t.fv
-  | eq A a b => A.fv ∪ a.fv ∪ b.fv
-  | sigma f | mks f | srec f | wty f | mkw f | wrec f | qty f | mkq f | qrec f => f.fv
-  | _ => ∅
-
-@[simp]
-theorem fv_coe (x : FVar Λ) : (x : Term Λ).fv = {x} ∪ x.ty.fv := rfl
 
 -- NOTE: all valid terms should satisfy this!
 inductive fv_lc : Term Λ → Prop
@@ -265,6 +289,7 @@ inductive fv_lc : Term Λ → Prop
   | free {n A} : A.bv = 0 → fv_lc A → fv_lc (free n A)
   | top : fv_lc top
   | bot : fv_lc bot
+  | trunc {A} : fv_lc A → fv_lc (trunc A)
   | epsilon {A} : fv_lc A → fv_lc (epsilon A)
   | dite {c t f} : fv_lc c → fv_lc t → fv_lc f → fv_lc (dite c t f)
   | univ {n} : fv_lc (univ n)
@@ -282,6 +307,41 @@ inductive fv_lc : Term Λ → Prop
   | mkq {f} : fv_lc f → fv_lc (mkq f)
   | qrec {f} : fv_lc f → fv_lc (qrec f)
   | invalid : fv_lc invalid
+
+-- TODO: define as actual inductive? or just do induction over?
+def valid : Term Λ → Bool
+  | free _ A => A.valid ∧ A.bv = 0
+  | trunc A => A.valid
+  | epsilon A => A.valid
+  | dite c t f => c.valid ∧ t.valid ∧ f.valid
+  | pi A B => A.valid ∧ B.valid
+  | app f a => f.valid ∧ a.valid
+  | abs A t => A.valid ∧ t.valid
+  | eq A a b => A.valid ∧ a.valid ∧ b.valid
+  | sigma f | mks f | srec f | wty f | mkw f | wrec f | qty f | mkq f | qrec f => f.valid
+  | invalid => false
+  | _ => true
+
+@[simp]
+theorem valid_wk_iff {ρ : ℕ → ℕ} {t : Term Λ} : (t.wk ρ).valid ↔ t.valid := by
+  induction t generalizing ρ <;> simp [wk, valid, *]
+
+variable [DecidableEq Λ]
+
+def fv : Term Λ → Finset (FVar Λ)
+  | free n A => { ⟨n, A⟩ } ∪ A.fv
+  | trunc A => A.fv
+  | epsilon A => A.fv
+  | dite c t f => c.fv ∪ t.fv ∪ f.fv
+  | pi A B => A.fv ∪ B.fv
+  | app f a => f.fv ∪ a.fv
+  | abs A t => A.fv ∪ t.fv
+  | eq A a b => A.fv ∪ a.fv ∪ b.fv
+  | sigma f | mks f | srec f | wty f | mkw f | wrec f | qty f | mkq f | qrec f => f.fv
+  | _ => ∅
+
+@[simp]
+theorem fv_coe (x : FVar Λ) : (x : Term Λ).fv = {x} ∪ x.ty.fv := rfl
 
 theorem fv_lc_var' {t : Term Λ} (h : t.fv_lc) : ∀n A, ⟨n, A⟩ ∈ t.fv -> A.bv = 0
   := by intro n A hnA; induction h <;> simp [fv] at * <;> aesop

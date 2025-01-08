@@ -68,6 +68,10 @@ theorem JEq.to_top (h : Γ ⊢ a ≡ b : A) : Γ ⊢ ⊤ ≡ ⊤ : .univ 0
   | top_cons hA => exact .top_cons hA
   | _ => assumption
 
+-- theorem JEq.sides_valid (h : Γ ⊢ a ≡ b : A) : a.valid ∧ b.valid := by
+--   induction h <;> simp [valid, bsubst0_valid_iff, *] at *
+--   sorry
+
 theorem JEq.left_refl_jeq (h : Γ ⊢ a ≡ b : A) : Γ ⊢ a ≡ a : A := .trans h (.symm h)
 
 theorem JEq.right_refl_jeq (h : Γ ⊢ a ≡ b : A) : Γ ⊢ b ≡ b : A := .trans (.symm h) h

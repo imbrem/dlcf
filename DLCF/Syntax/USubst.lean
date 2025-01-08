@@ -11,6 +11,7 @@ def usubst (μ : Λ → Λ') : Term Λ → Term Λ'
   | free n t => free n (t.usubst μ)
   | top => top
   | bot => bot
+  | trunc A => trunc (A.usubst μ)
   | epsilon A => epsilon (A.usubst μ)
   | univ ℓ => univ (μ ℓ)
   | dite c t f => dite (c.usubst μ) (t.usubst μ) (f.usubst μ)

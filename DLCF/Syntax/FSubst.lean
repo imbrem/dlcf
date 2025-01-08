@@ -8,6 +8,12 @@ variable {Λ}
 
 def FSubst (Λ) := FVar Λ → Term Λ
 
+def FSubst.invalid : FSubst Λ := λ_ => .invalid
+
+instance : Bot (FSubst Λ) := ⟨FSubst.invalid⟩
+
+instance : Inhabited (FSubst Λ) := ⟨FSubst.invalid⟩
+
 def FSubst.wk (ρ : ℕ → ℕ) (σ : FSubst Λ) : FSubst Λ := λx => (σ x).wk ρ
 
 @[simp]
@@ -43,6 +49,7 @@ theorem FSubst.lift_applied (σ : FSubst Λ) (x)
 
 def fsubst (σ : FSubst Λ) : Term Λ → Term Λ
   | free n A => σ ⟨n, A⟩
+  | trunc A => trunc (A.fsubst σ)
   | epsilon A => epsilon (A.fsubst σ)
   | dite c t f => dite (c.fsubst σ) (t.fsubst σ.lift) (f.fsubst σ.lift)
   | pi A B => pi (A.fsubst σ) (B.fsubst σ.lift)
