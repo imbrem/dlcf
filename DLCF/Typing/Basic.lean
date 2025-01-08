@@ -3,15 +3,13 @@ import Mathlib.Data.ENat.Basic
 
 namespace DLCF
 
-def imax (n : ℕ) : ℕ → ℕ
-  | 0 => 0
-  | m + 1 => n ⊔ (m + 1)
-
 namespace Term
 
-variable {Λ} [DecidableEq Λ] [Level Λ] [LevelBound Λ]
-
 open SuccOrder
+
+section JEq
+
+variable {Λ} [DecidableEq Λ] [Level Λ] [maxU : LevelBound Λ]
 
 inductive JEq : Finset (FVar Λ) → Term Λ → Term Λ → Term Λ → Prop
   -- Congruence
@@ -61,8 +59,6 @@ inductive JEq : Finset (FVar Λ) → Term Λ → Term Λ → Term Λ → Prop
 attribute [simp] JEq.top_emp
 
 notation Γ " ⊢ " a " ≡ " b " : " A => JEq Γ A a b
-
-section JEq
 
 variable {Γ : Finset (FVar Λ)}
 
@@ -148,7 +144,26 @@ theorem Ok.var (h : Ok Γ) (hx : ⟨i, A⟩ ∈ Γ) : Γ ⊢ .free i A ≡ .free
 
 end JEq
 
+section CastU
+
+variable {Λ} [DecidableEq Λ] [Level Λ]
+
+theorem JEq.cast_maxU
+  {lo hi : LevelBound Λ}
+  (hb : lo ≤ hi)
+  (h : JEq (maxU := lo) Γ A a b)
+  : JEq (maxU := hi) Γ A a b := by induction h with
+  | univ hΓ hℓ IΓ => exact .univ IΓ (hb hℓ)
+  | cast => apply JEq.cast <;> assumption
+  | trans => apply JEq.trans <;> assumption
+  | symm => apply JEq.symm; assumption
+  | _ => constructor <;> intros <;> apply_assumption <;> assumption
+
+end CastU
+
 section HasTy
+
+variable {Λ} [DecidableEq Λ] [Level Λ] [maxU : LevelBound Λ]
 
 inductive HasTy : Finset (FVar Λ) → Term Λ → Term Λ → Prop
   | var (hΓ : Ok Γ) (hx : ⟨i, A⟩ ∈ Γ) : HasTy Γ A (.free i A)

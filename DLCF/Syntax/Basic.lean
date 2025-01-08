@@ -7,17 +7,50 @@ import Mathlib.Data.Nat.SuccPred
 
 namespace DLCF
 
-class Level (Λ : Type _) extends SemilatticeSup Λ, SuccOrder Λ, Zero Λ
+class Level (Λ : Type _) extends SemilatticeSup Λ, SuccOrder Λ, Zero Λ, One Λ where
+  one_eq_succ_zero : 1 = SuccOrder.succ (α := Λ) 0
 
 class LevelBound (Λ : Type _) [Level Λ] where
   valid : Set Λ
   valid_lower: IsLowerSet valid
+  one_valid : 1 ∈ valid
+
+theorem LevelBound.zero_valid [Level Λ] [LevelBound Λ] : (0 : Λ) ∈ LevelBound.valid := by
+  apply LevelBound.valid_lower _ LevelBound.one_valid
+  rw [Level.one_eq_succ_zero]
+  apply SuccOrder.le_succ
 
 instance Level.instNat : Level ℕ where
+  one_eq_succ_zero := rfl
 
-instance LevelBound.nat_unbounded : LevelBound ℕ where
-  valid := Set.univ
-  valid_lower := isLowerSet_univ
+instance LevelBound.instPartialOrder {Λ} [Level Λ] : PartialOrder (LevelBound Λ) where
+  le a b := a.valid ⊆ b.valid
+  le_refl a := le_refl a.valid
+  le_trans a b c hab hbc := le_trans (α := Set Λ) hab hbc
+  le_antisymm a b hab hba := by cases a; cases b; cases le_antisymm (α := Set Λ) hab hba; rfl
+
+def LevelBound.no_universes (Λ : Type _) [Level Λ] : LevelBound Λ where
+    valid := Set.Iic 1
+    valid_lower := isLowerSet_Iic 1
+    one_valid := le_refl 1
+
+-- NOTE: this may diverge from `no_universes` if we add config flags for the type theory to
+-- `LevelBound`.
+instance LevelBound.instOrderBot (Λ : Type _) [Level Λ] : OrderBot (LevelBound Λ) where
+  bot := no_universes Λ
+  bot_le a _ hℓ := a.valid_lower hℓ a.one_valid
+
+instance LevelBound.instOrderTop (Λ : Type _) [Level Λ] : OrderTop (LevelBound Λ) where
+  top := {
+    valid := Set.univ
+    valid_lower := isLowerSet_univ
+    one_valid := Set.mem_univ 1
+  }
+  le_top _ ℓ _ := Set.mem_univ ℓ
+
+-- TODO: level bounds actually form a complete lattice
+
+instance LevelBound.nat_unbounded : LevelBound ℕ := ⊤
 
 variable (Λ : Type _)
 
